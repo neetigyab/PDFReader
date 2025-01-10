@@ -1,0 +1,6 @@
+*.pdf
+*.xlsx
+*.csv
+*.png
+*.jpg
+ref folder
