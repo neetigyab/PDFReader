@@ -34,22 +34,44 @@ def map_fields_to_content(lines, pdf_path):
                                 mapped_data[field] = "n/a"
                             else:
                                 if field == "When was the last time you used your card":
-                                    if pdf_path == "ref/New Dispute form Template check.pdf":
-                                        mapped_data[field] = lines[i + 2] + " " + lines[i + 5]
-                                        lines.pop(i+1)
-                                        lines.pop(i+2)
-                                        lines.pop(i+3)
-                                        lines.pop(i+4)
-                                        lines.pop(i+5)
-                                    else:
-                                        mapped_data[field] = lines[i + 2] + " " + lines[i + 4]
-                                        lines.pop(i+1)
-                                        lines.pop(i+2)
-                                        lines.pop(i+3)
-                                        lines.pop(i+4)
+                                    collected_lines = []
+                                    for j in range(i + 1, len(lines)):
+                                        next_line = lines[j].strip()
+                                        # Check if the next line is a new field
+                                        if any(alias.lower() in next_line.lower() for alias in field_mappings.keys() if alias != "Date"):
+                                            break
+                                        #Removing unwanted text from line
+                                        cleaned_line = re.sub(r"(Date:|Time:|_)", "", next_line)
+                                        # Add the cleaned line to the collected content
+                                        if cleaned_line.strip():
+                                            collected_lines.append(cleaned_line)
+
+                                    # Join collected lines to store as the field value
+                                    mapped_data[field] = " ".join(collected_lines) if collected_lines else "Not Found"
+
+                                    for j in range(i + 1, len(lines)):
+                                        lines.pop(j)
+                                        if any(alias.lower() in next_line.lower() for alias in field_mappings.keys() if alias != "Date"):
+                                            break
+
                                 elif field == "Reason for dispute":
-                                    t = lines[i + 1].split(" ")
-                                    mapped_data[field] = t[-2] + " " + t[-1]
+                                    next_line = lines[i + 1].strip() if i + 1 < len(lines) else ""
+    
+                                    # Maintain a set of already assigned substrings
+                                    assigned_substrings = set()
+                                    for value in mapped_data.values():
+                                        if isinstance(value, str):
+                                            assigned_substrings.update(value.split())
+
+                                    # Remove assigned substrings, numerical values, and special characters (except '/')
+                                    filtered_line = " ".join(
+                                        word for word in next_line.split()
+                                        if word not in assigned_substrings and not re.search(r'[^\w/]', word) and not re.search(r'\d', word)
+                                    )
+    
+                                    # Assign the cleaned line to the field
+                                    mapped_data[field] = filtered_line if filtered_line else "Not Found"
+                                    
                                 else:
                                     mapped_data[field] = lines[i + 1].strip() if i + 1 < len(lines) else "Not Found"
 
