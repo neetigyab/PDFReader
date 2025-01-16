@@ -3,6 +3,7 @@ import pandas as pd
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
+import re
 
 # Define fields and mappings (unchanged from original code)
 fields = [
@@ -52,7 +53,7 @@ field_mappings = {
     "Time you realized your card was stolen"  : ["What TIME did you realize your card was missing?"],
     "Do you know who made the transaction" : ["Do you know who made these transactions? (Select one):"], #checkbox entry
     "Have you given permission to anyone to use your card" : ["Have you given permission to anyone to use your card? (Select one):"], #checkbox entry
-    "When was the last time you used your card" : ["When was the last time you used your card?","Date:","Time:"],
+    "When was the last time you used your card" : ["When was the last time you used your card?"],
     "Last transaction amount" : ["Amount: $"],
     "Where do you normally store your card" : ["Where do you normally store your card?"],
     "Where do you normally store your PIN" : ["Where do you normally store your PIN?"],
@@ -138,6 +139,60 @@ def visualize_checkboxes(image, checkbox_positions, checkbox_states, page_number
 
 
 
+
+
+
+
+
+def get_line_coordinates(line_text, pdf_path):
+    """
+    Finds the bounding box coordinates of a given line of text on a PDF page using pdfplumber.
+
+    Args:
+        line_text (str): The text of the line to search for.
+        page (pdfplumber.page.Page): The page object from pdfplumber.
+
+    Returns:
+        tuple or None: Coordinates (x0, y0, x1, y1) if found, otherwise None.
+    """
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            for page_number, page in enumerate(pdf.pages, start=1):
+                bool = 0 
+                # Extract text with positional data
+                text_data = page.extract_text_lines()
+                #print(f"--- Page {page_number} Text ---\n")
+
+                for item in text_data:
+                    # Normalize the text for comparison
+                    extracted_text = item["text"].strip().lower()
+                    target_text = line_text.strip().lower()
+                    #print(f"checking for '{target_text}' in : '{extracted_text}'")
+
+                    if extracted_text == target_text:
+                        # Extract bounding box coordinates
+                        x0 = int(item["x0"])
+                        y0 = int(item["top"])
+                        x1 = int(item["x1"])
+                        y1 = int(item["bottom"])
+                        pg = page_number
+                        bool = 1
+                if bool == 1:
+                    break
+                else: 
+                    continue
+
+                #print(f"Line '{line_text}' not found on the page.")
+            return x0, y0, x1, y1, pg
+    except Exception as e:
+        #print(f"Error in get_line_coordinates: {e}")
+        return None
+
+
+
+
+
+
 def parse_checkbox(lines, index, aliases, pdf_path):
     """
     Extract checkbox states from nearby lines and return text of the line
@@ -155,20 +210,42 @@ def parse_checkbox(lines, index, aliases, pdf_path):
 
             for alias in aliases:
                 if alias.lower() in lines[index].lower():
+                    # # Get coordinates for lines[index] and lines[index+5]
+                    start_coords = get_line_coordinates(lines[index], pdf_path)
+
+                    if "_" in lines[index + 4]:
+                        end_coords = get_line_coordinates(lines[index + 3], pdf_path)
+                    else:
+                        end_coords = get_line_coordinates(lines[index + 4], pdf_path)
+                    
+                    #print(f"coordinates for {alias} : ",start_coords)
+                    #print(f"coordinates for end point of {alias} : ",end_coords)
+
+                    if not start_coords or not end_coords:
+                        print("Error: Unable to determine coordinates for target lines.")
+
+                    start_top, start_bottom, start_pg = start_coords[1], start_coords[3], start_coords[4]
+                    end_top, end_bottom, end_pg = end_coords[1], end_coords[3], end_coords[4]
+                    
                     # Process the next 4 lines
                     for candidate_line in lines[index : index + 5]:
-                        #print(f"Processing candidate line on page {page_number}: {candidate_line}")
                         # Find bounding box of the candidate line
                         bounding_box = None
                         for text_line in text_lines:
-                            if candidate_line.strip() == text_line['text'].strip():
-                                bounding_box = (
-                                    int(text_line['x0']),
-                                    int(text_line['top']),
-                                    int(text_line['x1']),
-                                    int(text_line['bottom'])
-                                )
-                                break
+                            if "_" not in text_line['text'].strip():
+                                # Compare text_line['top'] with the range
+                                if (
+                                    start_top <= text_line['top'] <= end_bottom
+                                    and candidate_line.strip() == text_line['text'].strip()
+                                    and page_number == start_pg == end_pg
+                                ):
+                                    bounding_box = (
+                                        int(text_line['x0']),
+                                        int(text_line['top']),
+                                        int(text_line['x1']),
+                                        int(text_line['bottom'])
+                                    )
+                                    break
 
                         if not bounding_box:
                             continue
@@ -179,21 +256,23 @@ def parse_checkbox(lines, index, aliases, pdf_path):
 
                         # Detect checkboxes in the line image
                         checkbox_states, checkbox_positions = detect_checkboxes(line_image, ignored_area=None)
-
+                        
                         if not checkbox_positions:
                             plt.imshow(line_image)
-                            plt.title(f"Checkbox NOT detected on page {page_number} in this line")
+                            plt.title(f"Checkbox NOT detected on page {page_number} in this line for field {alias}")
                             plt.show()
                             continue  # No checkbox found in this line
                         else:
                             plt.imshow(line_image)
-                            plt.title(f"Checkbox detected on page {page_number} in this line")
+                            plt.title(f"Checkbox detected on page {page_number} in this line for field {alias}")
                             plt.show()
                             for position, state in checkbox_states.items():
                                 if state == "Checked":
+                                    plt.imshow(line_image)
+                                    plt.title(f"Marked Checkbox on this line on page {page_number} for field {alias}")
+                                    plt.show()
                                     # Extract and clean the candidate line text
-                                    candidate_line = candidate_line.strip().split("X ", 1)[-1]
-                                    candidate_line = candidate_line.strip().split("(")[0]
+                                    candidate_line = candidate_line.strip().split("X ", 1)[-1].split("(")[0]
                                     output_lines.append(candidate_line)
                                     break  # No need to check further for this line
                                 else:
@@ -201,9 +280,10 @@ def parse_checkbox(lines, index, aliases, pdf_path):
 
     # Return results after processing all pages
     #print(output_lines)
+    output_words =', '.join(output_lines)
     if output_lines:
-        return output_lines
-    return "No marked checkbox found"
+        return output_words
+    return "n/a"
 
 
 
@@ -240,22 +320,49 @@ def map_fields_to_content(lines, pdf_path):
                                 mapped_data[field] = "n/a"
                             else:
                                 if field == "When was the last time you used your card":
-                                    if pdf_path == "ref/New Dispute form Template check.pdf":
-                                        mapped_data[field] = lines[i + 2] + " " + lines[i + 5]
-                                        lines.pop(i+1)
-                                        lines.pop(i+2)
-                                        lines.pop(i+3)
-                                        lines.pop(i+4)
-                                        lines.pop(i+5)
-                                    else:
-                                        mapped_data[field] = lines[i + 2] + " " + lines[i + 4]
-                                        lines.pop(i+1)
-                                        lines.pop(i+2)
-                                        lines.pop(i+3)
-                                        lines.pop(i+4)
+                                    collected_lines = []
+                                    for j in range(i + 1, len(lines)):
+                                        next_line = lines[j].strip()
+                                        # Check if the next line is a new field
+                                        if any(alias.lower() in next_line.lower() for alias in field_mappings.keys() if alias != "Date"):
+                                            break
+                                        #Removing unwanted text from line
+                                        cleaned_line = re.sub(r"(Date:|Time:|_)", "", next_line)
+                                        # Add the cleaned line to the collected content
+                                        if cleaned_line.strip():
+                                            collected_lines.append(cleaned_line)
+
+                                    # Join collected lines to store as the field value
+                                    mapped_data[field] = " ".join(collected_lines) if collected_lines else "Not Found"
+
+                                    for j in range(i + 1, len(lines)):
+                                        lines.pop(j)
+                                        if any(alias.lower() in next_line.lower() for alias in field_mappings.keys() if alias != "Date"):
+                                            break
+
                                 elif field == "Reason for dispute":
-                                    t = lines[i + 1].split(" ")
-                                    mapped_data[field] = t[-2] + " " + t[-1]
+                                    output_lines = []
+                                    for x in range (i + 1, len(lines)):
+                                        next_line = lines[x].strip() if x < len(lines) else ""
+    
+                                        # Maintain a set of already assigned substrings
+                                        assigned_substrings = set()
+                                        for value in mapped_data.values():
+                                            if isinstance(value, str):
+                                                assigned_substrings.update(value.split())
+
+                                        # Remove assigned substrings, numerical values, and special characters (except '/')
+                                        filtered_line = " ".join(
+                                            word for word in next_line.split()
+                                            if word not in assigned_substrings and not re.search(r'[^\w/]', word) and not re.search(r'\d', word)
+                                        )
+                                        if filtered_line not in output_lines:
+                                            output_lines.append(filtered_line)
+                                    
+                                    output_words =', '.join(output_lines)
+                                    # Assign the cleaned line to the field
+                                    mapped_data[field] = output_words if output_lines else "Not Found"
+                                
                                 else:
                                     mapped_data[field] = lines[i + 1].strip() if i + 1 < len(lines) else "Not Found"
     
@@ -284,7 +391,7 @@ def save_to_excel(mapped_data, filename):
 
 
 if __name__ == "__main__":
-    input_pdf = "ref/New Dispute form Template check.pdf" #Replace with required pdf form
+    input_pdf = "ref/New Dispute form Template check 1.pdf" #Replace with required pdf form
     output_excel = "Dispute_form_output.xlsx"
 
     lines = extract_pdf_text(input_pdf)
