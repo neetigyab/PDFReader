@@ -55,22 +55,27 @@ def map_fields_to_content(lines, pdf_path):
                                             break
 
                                 elif field == "Reason for dispute":
-                                    next_line = lines[i + 1].strip() if i + 1 < len(lines) else ""
+                                    output_lines = []
+                                    for x in range (i + 1, len(lines)):
+                                        next_line = lines[x].strip() if x < len(lines) else ""
     
-                                    # Maintain a set of already assigned substrings
-                                    assigned_substrings = set()
-                                    for value in mapped_data.values():
-                                        if isinstance(value, str):
-                                            assigned_substrings.update(value.split())
+                                        # Maintain a set of already assigned substrings
+                                        assigned_substrings = set()
+                                        for value in mapped_data.values():
+                                            if isinstance(value, str):
+                                                assigned_substrings.update(value.split())
 
-                                    # Remove assigned substrings, numerical values, and special characters (except '/')
-                                    filtered_line = " ".join(
-                                        word for word in next_line.split()
-                                        if word not in assigned_substrings and not re.search(r'[^\w/]', word) and not re.search(r'\d', word)
-                                    )
-    
+                                        # Remove assigned substrings, numerical values, and special characters (except '/')
+                                        filtered_line = " ".join(
+                                            word for word in next_line.split()
+                                            if word not in assigned_substrings and not re.search(r'[^\w/]', word) and not re.search(r'\d', word)
+                                        )
+                                        if filtered_line not in output_lines:
+                                            output_lines.append(filtered_line)
+                                    
+                                    output_words =', '.join(output_lines)
                                     # Assign the cleaned line to the field
-                                    mapped_data[field] = filtered_line if filtered_line else "Not Found"
+                                    mapped_data[field] = output_words if output_lines else "Not Found"
                                     
                                 else:
                                     mapped_data[field] = lines[i + 1].strip() if i + 1 < len(lines) else "Not Found"
